@@ -316,7 +316,7 @@ pub(in crate::isa::riscv) fn get_exec_func(
         // RV_Custom
         //---------------------------------------
         #[cfg(feature = "custom-instr")]
-        RiscvInstr::MY_INSTR0_R => todo!(),
+        RiscvInstr::PADD8 => exec_padd8,
         #[cfg(feature = "custom-instr")]
         RiscvInstr::MY_INSTR1_DISPLAY => |info, cpu| {
             if let RVInstrInfo::I { rs1: _, rd: _, imm } = info {

@@ -211,6 +211,41 @@ pub(super) fn exec_nop(_info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Except
     normal_exec(cpu, |_| Ok(()))
 }
 
+/// 自定义指令 `padd8`：4 路 8-bit 打包加法（Packed SIMD）。
+///
+/// 语义：把 64 位寄存器拆成 4 个 8 位 lane，逐 lane 相加，
+/// 每个 lane 独立回绕（mod 256），不跨字节进位。
+///
+/// 编码：custom-0 / funct3 = 0 / funct7 = 0
+#[cfg(feature = "custom-instr")]
+pub(super) fn exec_padd8(info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Exception> {
+    let RVInstrInfo::R { rd, rs1, rs2 } = info else {
+        unreachable!("padd8 must decode to an R-type instruction")
+    };
+
+    let (a, b) = cpu.reg_file.read(rs1, rs2);
+
+    let mut out: WordType = 0;
+    for lane in 0..4 {
+        let shift = 8 * lane;
+        let sum = ((a >> shift) & 0xff) + ((b >> shift) & 0xff);
+        out |= (sum & 0xff) << shift;
+    }
+
+    log::info!(
+        "[custom] padd8 x{}, x{}, x{} = {:#x}",
+        rd,
+        rs1,
+        rs2,
+        out
+    );
+
+    normal_exec(cpu, |cpu| {
+        cpu.reg_file.write(rd, out);
+        Ok(())
+    })
+}
+
 // =============================================
 //                  ExecTrait
 // =============================================

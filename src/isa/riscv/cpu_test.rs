@@ -759,6 +759,68 @@ fn test_custom_instr() {
     );
 }
 
+/// `padd8 x3, x1, x2`，编码为 `0x0020_818B`。
+///
+/// 逐 lane 计算：
+///   0x04 + 0x08 = 0x0C
+///   0x03 + 0x07 = 0x0A
+///   0x02 + 0x06 = 0x08
+///   0x01 + 0x05 = 0x06
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8() {
+    run_test_exec_decode(
+        0x0020_818B,
+        |b| b.reg(1, 0x0102_0304).reg(2, 0x0506_0708),
+        |c| c.reg(3, 0x0608_0A0C).pc(0x8000_0004),
+    );
+}
+
+/// 验证每个 lane 独立回绕（0xFF + 0x02 = 0x01，不影响相邻 lane）。
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_lane_wraparound() {
+    run_test_exec_decode(
+        0x0020_818B,
+        |b| b.reg(1, 0x0000_00FF).reg(2, 0x0000_0002),
+        |c| c.reg(3, 0x0000_0001).pc(0x8000_0004),
+    );
+}
+
+/// 使用 `ExecTester` 生成随机操作数和随机寄存器编号，验证 padd8 的通用性。
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_randomized() {
+    let mut tester = ExecTester::new();
+
+    for _ in 0..64 {
+        let (a, b) = tester.rand_word2();
+        // rs1 与 rs2 必须是不同寄存器：否则第二次 reg() 初始化会覆盖第一次
+        let (rs1, rs2) = tester.rand_unique_reg_idx2();
+        // rd 允许与 rs1/rs2 相同，用于验证「先读后写」
+        let rd = tester.rand_reg_idx();
+
+        // 按 R 型格式动态拼装 padd8 机器码
+        let raw = ((rs2 as u32) << 20)
+            | ((rs1 as u32) << 15)
+            | ((rd as u32) << 7)
+            | 0x0B;
+
+        let mut expected: WordType = 0;
+        for lane in 0..4 {
+            let shift = 8 * lane;
+            let sum = ((a >> shift) & 0xff) + ((b >> shift) & 0xff);
+            expected |= (sum & 0xff) << shift;
+        }
+
+        run_test_exec_decode(
+            raw,
+            |cpu| cpu.reg(rs1, a).reg(rs2, b),
+            |c| c.reg(rd, expected).pc(0x8000_0004),
+        );
+    }
+}
+
 #[test]
 fn test_default_csr_value() {
     let cpu = TestCPUBuilder::new().build();

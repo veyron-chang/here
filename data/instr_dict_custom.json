@@ -1,5 +1,5 @@
 {
-    "my_instr0_r": {
+    "padd8": {
         "encoding": "0000000----------000-----0001011",
         "variable_fields": [
             "rd",

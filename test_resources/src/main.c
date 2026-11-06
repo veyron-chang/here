@@ -1,6 +1,7 @@
 #include "io.h"
 #include "log.h"
 #include "power.h"
+#include "custom_ops.h"
 #include <stdarg.h>
 #include <stdint.h>
 
@@ -27,6 +28,12 @@ int main() {
     TEST_START(__BASE_FILE__);
     display_section_info();
     printf("Hello Qemu.\nformat test: %8d %08x %4o %c %s\n", 1ll, 255ll, 15, 'c', "test");
+
+    // 调用自定义指令 padd8（需用 --features custom-instr 运行模拟器）
+    uint32_t padd_a = 0x01020304u;
+    uint32_t padd_b = 0x05060708u;
+    printf("custom padd8(%08x, %08x) = %08x\n", padd_a, padd_b, padd8(padd_a, padd_b));
+
     Log(ERROR, "error test.");
     Log(WARN, "warnning test.");
     Log(DEBUG, "debug test.");
