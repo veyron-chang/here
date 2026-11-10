@@ -303,8 +303,10 @@ mod native {
     use crate::{
         DeviceConfig,
         device::virtio::{
-            virtio_block::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
+            virtio_block::VirtIOBlkDeviceBuilder,
+            virtio_device::{VirtIODeviceEnum, VirtIODeviceTrait},
             virtio_mmio::VirtIOMMIO,
+            virtio_rng::VirtIORngDeviceBuilder,
         },
     };
 
@@ -316,24 +318,36 @@ mod native {
             irq: PeriphIrqId,
             config: DeviceConfig,
         ) -> Self {
-            let virtio_device = match config.dev_type {
+            // Every arm must produce the same trait object: the transport is
+            // shared, only the device behind it differs.
+            let virtio_device: Box<UnsafeCell<dyn VirtIODeviceTrait>> = match config.dev_type {
                 VirtIODeviceEnum::VirtIOBlock => {
                     let ram_base = unsafe { &mut self.ram_ref.as_mut_unchecked()[0] as *mut u8 };
-                    VirtIOBlkDeviceBuilder::new(
+                    let path = config.path.as_ref().unwrap_or_else(|| {
+                        panic!("virtio-block requires a backing file: --device=virtio-block:PATH")
+                    });
+                    let device = VirtIOBlkDeviceBuilder::new(
                         ram_base,
-                        String::from(config.path.to_str().unwrap()),
+                        String::from(path.to_str().unwrap()),
                     )
                     .host_feature(
                         crate::device::virtio::virtio_block::VirtIOBlockFeature::BlockSize,
                     )
                     .host_feature(crate::device::virtio::virtio_block::VirtIOBlockFeature::Flush)
-                    .get_and_spawner_task(&mut self.spawner)
+                    .get_and_spawner_task(&mut self.spawner);
+                    Box::new(UnsafeCell::new(device))
+                }
+                VirtIODeviceEnum::VirtIORng => {
+                    let ram_base = unsafe { &mut self.ram_ref.as_mut_unchecked()[0] as *mut u8 };
+                    let device = VirtIORngDeviceBuilder::new(ram_base)
+                        .get_and_spawner_task(&mut self.spawner);
+                    Box::new(UnsafeCell::new(device))
                 }
                 dev_type => {
                     panic!("unsupport device: {:#?}", dev_type);
                 }
             };
-            let virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virtio_device)));
+            let virtio_mmio_device = VirtIOMMIO::new(virtio_device);
             self.add_plic_device(Box::new(virtio_mmio_device), base, size, irq)
         }
     }
@@ -400,11 +414,11 @@ mod native_tests {
         let devices = vec![
             DeviceConfig {
                 dev_type: VirtIODeviceEnum::VirtIOBlock,
-                path: file_path1.clone(),
+                path: Some(file_path1.clone()),
             },
             DeviceConfig {
                 dev_type: VirtIODeviceEnum::VirtIOBlock,
-                path: file_path2.clone(),
+                path: Some(file_path2.clone()),
             },
         ];
 
@@ -440,7 +454,7 @@ mod native_tests {
                 VIRTIO_IRQ_BASE,
                 DeviceConfig {
                     dev_type: VirtIODeviceEnum::VirtIOBlock,
-                    path: file_path.clone(),
+                    path: Some(file_path.clone()),
                 },
             )
             .build();

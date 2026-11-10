@@ -43,7 +43,9 @@ use std::{path::PathBuf, str::FromStr};
 #[derive(Debug, Clone)]
 pub struct DeviceConfig {
     pub dev_type: VirtIODeviceEnum,
-    pub path: PathBuf,
+    /// Backing file for devices that need one. `None` for devices whose host
+    /// backend is implicit (e.g. `virtio-rng` reads `/dev/urandom`).
+    pub path: Option<PathBuf>,
 }
 
 impl FromStr for DeviceConfig {
@@ -54,10 +56,11 @@ impl FromStr for DeviceConfig {
         let dev_type = match parts.next() {
             Some("virtio-block") => VirtIODeviceEnum::VirtIOBlock,
             Some("virtio-network") => VirtIODeviceEnum::VirtIONet,
+            Some("virtio-rng") => VirtIODeviceEnum::VirtIORng,
             Some(other) => return Err(format!("Unknown device type: {}", other)),
             None => return Err("Invalid device arguments.".into()),
         };
-        let path = PathBuf::from(parts.next().ok_or("Need input a device path.")?);
+        let path = parts.next().map(PathBuf::from);
         Ok(DeviceConfig { dev_type, path })
     }
 }

@@ -44,6 +44,11 @@ impl VirtQueueDesc {
         self.flags.contains(VirtQueueDescFlag::VIRTQ_DESC_F_NEXT)
     }
 
+    /// True when the device is allowed to write into this buffer.
+    pub(crate) fn device_writable(&self) -> bool {
+        self.flags.contains(VirtQueueDescFlag::VIRTQ_DESC_F_WRITE)
+    }
+
     fn buffer_in_ram(&self) -> bool {
         let Some(offset) = self.paddr.checked_sub(ram_config::BASE_ADDR as u64) else {
             return false;

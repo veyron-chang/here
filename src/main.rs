@@ -144,10 +144,11 @@ struct Args {
     )]
     log_level: LogLevel,
 
-    /// Attach a VirtIO block device; may be repeated. Format: virtio-block:PATH
+    /// Attach a VirtIO device; may be repeated.
+    /// Formats: virtio-block:PATH, virtio-rng
     #[arg(
         long = "device",
-        value_name = "TYPE:PATH",
+        value_name = "TYPE[:PATH]",
         action = clap::ArgAction::Append
     )]
     devices: Vec<DeviceConfig>,
