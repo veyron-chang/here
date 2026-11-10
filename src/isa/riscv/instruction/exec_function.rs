@@ -1,6 +1,7 @@
 use std::{
     hint::{unlikely, unreachable_unchecked},
     marker::PhantomData,
+    mem::size_of,
 };
 
 pub(super) use super::exec_float_function::*;
@@ -209,6 +210,92 @@ pub(super) fn exec_csr_bit<const SET: bool, const UIMM: bool>(
 
 pub(super) fn exec_nop(_info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Exception> {
     normal_exec(cpu, |_| Ok(()))
+}
+
+// =============================================
+//        Custom Packed-SIMD Compute Units
+// =============================================
+
+/// 把一个 XLEN 位寄存器切成若干 8-bit lane，逐 lane 应用 `f` 后拼回。
+///
+/// - RV64：8 个 lane
+/// - RV32：4 个 lane
+#[cfg(feature = "custom-instr")]
+#[inline]
+fn lane_map<F>(a: WordType, b: WordType, f: F) -> WordType
+where
+    F: Fn(u8, u8) -> u8,
+{
+    let a_bytes = a.to_le_bytes();
+    let b_bytes = b.to_le_bytes();
+    let mut out = [0u8; size_of::<WordType>()];
+
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = f(a_bytes[i], b_bytes[i]);
+    }
+
+    WordType::from_le_bytes(out)
+}
+
+/// `padd8`：逐 lane 8-bit 回绕加法（进位隔离）。
+///
+/// 编码：custom-0 / funct3 = 0 / funct7 = 0
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecPadd8;
+
+#[cfg(feature = "custom-instr")]
+impl ExecTrait<Result<WordType, Exception>> for ExecPadd8 {
+    fn exec(a: WordType, b: WordType) -> Result<WordType, Exception> {
+        Ok(lane_map(a, b, u8::wrapping_add))
+    }
+}
+
+/// `psub8`：逐 lane 8-bit 回绕减法（借位隔离）。
+///
+/// 编码：custom-0 / funct3 = 1 / funct7 = 0
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecPsub8;
+
+#[cfg(feature = "custom-instr")]
+impl ExecTrait<Result<WordType, Exception>> for ExecPsub8 {
+    fn exec(a: WordType, b: WordType) -> Result<WordType, Exception> {
+        Ok(lane_map(a, b, u8::wrapping_sub))
+    }
+}
+
+/// `padd8_sat`：逐 lane 8-bit 无符号饱和加法（溢出钳位到 255）。
+///
+/// 编码：custom-0 / funct3 = 2 / funct7 = 0
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecPadd8Sat;
+
+#[cfg(feature = "custom-instr")]
+impl ExecTrait<Result<WordType, Exception>> for ExecPadd8Sat {
+    fn exec(a: WordType, b: WordType) -> Result<WordType, Exception> {
+        Ok(lane_map(a, b, u8::saturating_add))
+    }
+}
+
+/// `pdot4`：取低 4 个字节做 8-bit 点积，结果零扩展到 XLEN。
+///
+/// 注意：这是**跨 lane 归约**，不能复用 `lane_map`。
+///
+/// 编码：custom-0 / funct3 = 3 / funct7 = 0
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecPdot4;
+
+#[cfg(feature = "custom-instr")]
+impl ExecTrait<Result<WordType, Exception>> for ExecPdot4 {
+    fn exec(a: WordType, b: WordType) -> Result<WordType, Exception> {
+        let a_bytes = a.to_le_bytes();
+        let b_bytes = b.to_le_bytes();
+
+        let acc: u32 = (0..4)
+            .map(|i| a_bytes[i] as u32 * b_bytes[i] as u32)
+            .sum();
+
+        Ok(acc as WordType) // u32 → u64：零扩展，不是符号扩展
+    }
 }
 
 // =============================================
