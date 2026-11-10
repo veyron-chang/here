@@ -759,6 +759,250 @@ fn test_custom_instr() {
     );
 }
 
+// ============================================================
+// Chapter 3: 自定义指令后端执行单元测试
+// ============================================================
+
+/// `padd8 x3, x1, x2`
+#[cfg(feature = "custom-instr")]
+const PADD8_X3_X1_X2: u32 = 0x0020_818B;
+/// `psub8 x3, x1, x2`
+#[cfg(feature = "custom-instr")]
+const PSUB8_X3_X1_X2: u32 = 0x0020_918B;
+/// `padd8_sat x3, x1, x2`
+#[cfg(feature = "custom-instr")]
+const PADD8_SAT_X3_X1_X2: u32 = 0x0020_A18B;
+/// `pdot4 x3, x1, x2`
+#[cfg(feature = "custom-instr")]
+const PDOT4_X3_X1_X2: u32 = 0x0020_B18B;
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_backend() {
+    run_test_exec_decode(
+        PADD8_X3_X1_X2,
+        |b| b.reg(1, 0x0102_0304).reg(2, 0x0506_0708),
+        |c| c.reg(3, 0x0608_0A0C).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_carry_isolation() {
+    // 每个通道都恰好溢出到 0x100，必须各自截断为 0x00
+    run_test_exec_decode(
+        PADD8_X3_X1_X2,
+        |b| b.reg(1, 0xFF01_FE02).reg(2, 0x01FF_02FE),
+        |c| c.reg(3, 0x0000_0000).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_all_ones() {
+    run_test_exec_decode(
+        PADD8_X3_X1_X2,
+        |b| b.reg(1, 0xFFFF_FFFF).reg(2, 0x0000_0001),
+        |c| c.reg(3, 0xFFFF_FF00).pc(0x8000_0004),
+    );
+}
+
+/// RV64 上 `padd8` 处理 8 个 lane，高 4 字节不能被忽略。
+#[cfg(all(feature = "custom-instr", feature = "riscv64"))]
+#[test]
+fn test_custom_padd8_high_lanes() {
+    run_test_exec_decode(
+        PADD8_X3_X1_X2,
+        |b| {
+            b.reg(1, 0x0102_0304_0506_0708)
+                .reg(2, 0x0807_0605_0403_0201)
+        },
+        |c| c.reg(3, 0x0909_0909_0909_0909).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_to_x0() {
+    // padd8 x0, x1, x2 —— x0 必须保持为 0
+    let raw_to_x0: u32 = 0x0020_800B;
+    run_test_exec_decode(
+        raw_to_x0,
+        |b| b.reg(1, 0x1122_3344).reg(2, 0x5566_7788),
+        |c| c.reg(0, 0),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_register_overlap() {
+    // padd8 x1, x1, x2 —— 必须先读旧值，再写回
+    let raw_overlap: u32 = 0x0020_808B;
+    run_test_exec_decode(
+        raw_overlap,
+        |b| b.reg(1, 0x0101_0101).reg(2, 0x0202_0202),
+        |c| c.reg(1, 0x0303_0303).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_psub8_backend() {
+    run_test_exec_decode(
+        PSUB8_X3_X1_X2,
+        |b| b.reg(1, 0x0506_0708).reg(2, 0x0102_0304),
+        |c| c.reg(3, 0x0404_0404).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_psub8_borrow_isolation() {
+    // lane0: 0 - 0 = 0；lane3: 0 - 1 = 0xFF（不得向相邻 lane 借位）
+    run_test_exec_decode(
+        PSUB8_X3_X1_X2,
+        |b| b.reg(1, 0x0000_0000).reg(2, 0x0100_0000),
+        |c| c.reg(3, 0xFF00_0000).pc(0x8000_0004),
+    );
+}
+
+#[cfg(all(feature = "custom-instr", feature = "riscv64"))]
+#[test]
+fn test_custom_psub8_high_lanes() {
+    run_test_exec_decode(
+        PSUB8_X3_X1_X2,
+        |b| b.reg(1, 0).reg(2, 0x0100_0000_0000_0000),
+        |c| c.reg(3, 0xFF00_0000_0000_0000).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_sat_backend() {
+    run_test_exec_decode(
+        PADD8_SAT_X3_X1_X2,
+        |b| b.reg(1, 0x0102_0304).reg(2, 0x0506_0708),
+        |c| c.reg(3, 0x0608_0A0C).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_sat_clamps() {
+    run_test_exec_decode(
+        PADD8_SAT_X3_X1_X2,
+        |b| b.reg(1, 0xFFFF_FFFF).reg(2, 0x0101_0101),
+        |c| c.reg(3, 0xFFFF_FFFF).pc(0x8000_0004),
+    );
+}
+
+#[cfg(all(feature = "custom-instr", feature = "riscv64"))]
+#[test]
+fn test_custom_padd8_sat_clamps_all_lanes() {
+    run_test_exec_decode(
+        PADD8_SAT_X3_X1_X2,
+        |b| {
+            b.reg(1, 0x8080_8080_8080_8080)
+                .reg(2, 0x8080_8080_8080_8080)
+        },
+        |c| c.reg(3, 0xFFFF_FFFF_FFFF_FFFF).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_pdot4_backend() {
+    // 4 * (2 * 3) = 24 = 0x18
+    run_test_exec_decode(
+        PDOT4_X3_X1_X2,
+        |b| b.reg(1, 0x0202_0202).reg(2, 0x0303_0303),
+        |c| c.reg(3, 0x18).pc(0x8000_0004),
+    );
+}
+
+/// 4 * 255 * 255 = 260100 = 0x3F804，高 32 位必须为 0（零扩展而非符号扩展）。
+#[cfg(all(feature = "custom-instr", feature = "riscv64"))]
+#[test]
+fn test_custom_pdot4_zero_extends() {
+    run_test_exec_decode(
+        PDOT4_X3_X1_X2,
+        |b| b.reg(1, 0xFFFF_FFFF).reg(2, 0xFFFF_FFFF),
+        |c| c.reg(3, 0x0000_0000_0003_F804).pc(0x8000_0004),
+    );
+}
+
+/// pdot4 只使用低 4 个字节，高 4 字节不参与运算。
+#[cfg(all(feature = "custom-instr", feature = "riscv64"))]
+#[test]
+fn test_custom_pdot4_ignores_high_lanes() {
+    run_test_exec_decode(
+        PDOT4_X3_X1_X2,
+        |b| {
+            b.reg(1, 0xFFFF_FFFF_FFFF_FFFF)
+                .reg(2, 0xFFFF_FFFF_FFFF_FFFF)
+        },
+        |c| c.reg(3, 0x0000_0000_0003_F804).pc(0x8000_0004),
+    );
+}
+
+/// 自定义指令与标准指令交替执行，结果能被后续指令消费。
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_instruction_pipeline_step() {
+    let program = [
+        0x0050_0093, // addi x1, x0, 5
+        0x00a0_0113, // addi x2, x0, 10
+        0x0020_818B, // padd8 x3, x1, x2  -> 15
+        0x0031_820B, // padd8 x4, x3, x3  -> 30
+    ];
+
+    run_test_cpu_step(
+        &program,
+        |b| b.pc(ram_config::BASE_ADDR),
+        |c| {
+            c.reg(1, 5)
+                .reg(2, 10)
+                .reg(3, 15)
+                .reg(4, 30)
+                .pc(ram_config::BASE_ADDR + 16)
+        },
+    );
+}
+
+/// 使用 `ExecTester` 生成随机操作数与随机寄存器编号。
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_randomized() {
+    let mut tester = ExecTester::new();
+
+    for _ in 0..64 {
+        let (a, b) = tester.rand_word2();
+        // rs1 与 rs2 必须不同，否则第二次 reg() 初始化会覆盖第一次
+        let (rs1, rs2) = tester.rand_unique_reg_idx2();
+        // rd 允许与 rs1/rs2 相同，用于验证「先读后写」
+        let rd = tester.rand_reg_idx();
+
+        let raw = ((rs2 as u32) << 20)
+            | ((rs1 as u32) << 15)
+            | ((rd as u32) << 7)
+            | 0x0B;
+
+        let a_bytes = a.to_le_bytes();
+        let b_bytes = b.to_le_bytes();
+        let mut out = [0u8; std::mem::size_of::<WordType>()];
+        for i in 0..out.len() {
+            out[i] = a_bytes[i].wrapping_add(b_bytes[i]);
+        }
+        let expected = WordType::from_le_bytes(out);
+
+        run_test_exec_decode(
+            raw,
+            |cpu| cpu.reg(rs1, a).reg(rs2, b),
+            |c| c.reg(rd, expected).pc(0x8000_0004),
+        );
+    }
+}
+
 #[test]
 fn test_default_csr_value() {
     let cpu = TestCPUBuilder::new().build();

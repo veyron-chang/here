@@ -72,11 +72,21 @@
 			compatible = "ns16550a";
 		};
 
-		// virtio_mmio 设备（VirtIO-RNG，IRQ 1 == VIRTIO_IRQ_BASE）
+		// VirtIO-Block：Chapter 6 的数据盘 / rootfs
+		// IRQ 1 == VIRTIO_IRQ_BASE（第 1 个 virtio 设备）
 		virtio_mmio@10001000 {
 			interrupts = <0x01>;
 			interrupt-parent = <0x11>;
 			reg = <0x00 0x10001000 0x00 0x1000>;
+			compatible = "virtio,mmio";
+		};
+
+		// VirtIO-RNG：Chapter 5 自研外设
+		// IRQ 2 == VIRTIO_IRQ_BASE + 1（第 2 个 virtio 设备，地址由 IdAllocator 自动递增）
+		virtio_mmio@10002000 {
+			interrupts = <0x02>;
+			interrupt-parent = <0x11>;
+			reg = <0x00 0x10002000 0x00 0x1000>;
 			compatible = "virtio,mmio";
 		};
 

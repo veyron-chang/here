@@ -16,6 +16,9 @@ test_resources/dump/
 test_resources/bin/
 test_resources/obj/
 
+# Chapter 6: 生成的 Linux 镜像 / 用户态程序 / 启动日志
+linux/out/
+
 riscof_work/
 __pycache__/
 
